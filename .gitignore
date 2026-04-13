@@ -19,3 +19,4 @@ build/
 .idea/
 .vscode/
 *.swp
+node_modules/
