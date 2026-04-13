@@ -1,0 +1,8 @@
+pip-tools
+pytest
+pytest-asyncio
+ruff
+black
+mypy
+moto
+responses

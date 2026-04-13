@@ -1,0 +1,3 @@
+[submodule "vendor/app.rightofaccess"]
+	path = vendor/app.rightofaccess
+	url = https://github.com/mosaxton/APP.RightOfAccess-Prod.git
