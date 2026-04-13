@@ -38,7 +38,7 @@ seed-db:
 	@echo "seed-db: wired in Step 3"
 
 gen-fixtures:
-	@echo "gen-fixtures: wired in Step 2"
+	npx --yes tsx scripts/generate-cross-lang-fixture.ts
 
 clean:
 	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache .aws-sam

@@ -1,0 +1,7 @@
+{
+  "plaintext": "The quick brown fox jumps over the lazy dog — 🦊",
+  "key_hex": "5c3d4a2b1f8e7d6c9b0a1234567890abcdef0123456789abcdef0123456789ab",
+  "generated_by": "scripts/generate-cross-lang-fixture.ts",
+  "generated_at": "2026-04-13T02:45:31.200Z",
+  "ts_source_path": "vendor/app.rightofaccess/lib/encryption.ts"
+}

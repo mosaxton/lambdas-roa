@@ -1,0 +1,11 @@
+{
+  "name": "roa-lambdas-scripts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Node toolchain for cross-language test fixture generation only",
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
