@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 IV_LENGTH: int = 12
@@ -54,6 +55,7 @@ def decrypt(data: bytes) -> str:
     """Decrypt *data* produced by encrypt() or the TypeScript equivalent.
 
     Raises ValueError if data is too short or the auth tag is invalid.
+    All exceptions are raised as ValueError so callers have a single type to handle.
     Returns the original plaintext string.
     """
     if len(data) < MIN_ENCRYPTED_LENGTH:
@@ -64,5 +66,8 @@ def decrypt(data: bytes) -> str:
     ciphertext = data[IV_LENGTH + AUTH_TAG_LENGTH :]
     aesgcm = AESGCM(key)
     # Reconstruct the library's expected ciphertext || tag layout
-    plaintext_bytes = aesgcm.decrypt(iv, ciphertext + auth_tag, None)
+    try:
+        plaintext_bytes = aesgcm.decrypt(iv, ciphertext + auth_tag, None)
+    except InvalidTag as exc:
+        raise ValueError("Invalid encrypted value: authentication tag mismatch") from exc
     return plaintext_bytes.decode("utf-8")
