@@ -7,17 +7,37 @@ so every test starts with a clean slate.
 """
 
 import os
+import socket as _socket
 from pathlib import Path
 
 
+def _sock_connectable(path: Path) -> bool:
+    """Return True only if the Unix socket file exists AND accepts connections."""
+    if not path.exists():
+        return False
+    try:
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(1)
+        s.connect(str(path))
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
 # Auto-detect Docker socket before testcontainers initialises.
-# Supports Colima (macOS) and Docker Desktop. Ryuk/Reaper is disabled because
-# Colima does not support bind-mounting the socket file into a container.
+# Supports Colima (macOS) and Docker Desktop. Checks connectivity so stale
+# socket files left by stopped Colima instances don't cause false positives.
+# Ryuk/Reaper is disabled because Colima does not support bind-mounting the
+# socket file into a container.
 def _configure_testcontainers() -> None:
     if not os.environ.get("DOCKER_HOST"):
         colima_sock = Path.home() / ".colima" / "default" / "docker.sock"
-        if colima_sock.exists():
+        desktop_sock = Path.home() / ".docker" / "run" / "docker.sock"
+        if _sock_connectable(colima_sock):
             os.environ["DOCKER_HOST"] = f"unix://{colima_sock}"
+        elif _sock_connectable(desktop_sock):
+            os.environ["DOCKER_HOST"] = f"unix://{desktop_sock}"
     # Ryuk tries to mount the docker socket, which Colima rejects.
     os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 
