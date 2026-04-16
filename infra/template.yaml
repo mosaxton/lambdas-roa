@@ -65,6 +65,10 @@ Globals:
     Runtime: python3.12
     Architectures:
       - x86_64
+    Tags:
+      Project: roa
+      HIPAA: "yes"
+      Environment: !Ref Environment
 
 # ── Resources ────────────────────────────────────────────────────────────────
 
@@ -212,6 +216,48 @@ Resources:
   # ── Parameter Store — queue URL for the Next.js app ───────────────────────
   # The Next.js Amplify app reads this at startup instead of using a hardcoded
   # env var, so it survives stack recreations without an Amplify redeploy.
+
+  # ── VPC Endpoints ─────────────────────────────────────────────────────────
+  # Keep Lambda traffic on the AWS backbone for Secrets Manager and SQS.
+  # Eliminates NAT gateway charges for secret lookups (~100 calls/day).
+
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Lambda to reach Secrets Manager and SQS VPC endpoints
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref LambdaSecurityGroupId
+      Tags:
+        - Key: Project
+          Value: roa
+        - Key: Environment
+          Value: !Ref Environment
+
+  SecretsManagerVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcEndpointType: Interface
+      SubnetIds: !Ref PrivateSubnetIds
+      SecurityGroupIds:
+        - !GetAtt VpcEndpointSecurityGroup.GroupId
+      PrivateDnsEnabled: true
+
+  SqsVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.sqs
+      VpcEndpointType: Interface
+      SubnetIds: !Ref PrivateSubnetIds
+      SecurityGroupIds:
+        - !GetAtt VpcEndpointSecurityGroup.GroupId
+      PrivateDnsEnabled: true
 
   EobQueueUrlParameter:
     Type: AWS::SSM::Parameter

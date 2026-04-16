@@ -46,6 +46,10 @@ Parameters:
   LambdaSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
 
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  IsStaging: !Equals [!Ref Environment, staging]
+
 Resources:
 
   # ── Dead Letter Queue ──────────────────────────────────────────────────────
@@ -60,6 +64,10 @@ Resources:
           Value: !Ref Environment
         - Key: Component
           Value: fhir-processor
+        - Key: Project
+          Value: roa
+        - Key: HIPAA
+          Value: "yes"
 
   # ── Main Processing Queue ──────────────────────────────────────────────────
 
@@ -78,6 +86,10 @@ Resources:
           Value: !Ref Environment
         - Key: Component
           Value: fhir-processor
+        - Key: Project
+          Value: roa
+        - Key: HIPAA
+          Value: "yes"
 
   # ── Lambda Function ────────────────────────────────────────────────────────
 
@@ -122,6 +134,18 @@ Resources:
       Tags:
         Environment: !Ref Environment
         Component: fhir-processor
+
+  FhirProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/roa-fhir-processor-${Environment}
+      RetentionInDays: !If
+        - IsProd
+        - 365
+        - !If
+          - IsStaging
+          - 90
+          - 30
 
   # ── CloudWatch Alarms ──────────────────────────────────────────────────────
 

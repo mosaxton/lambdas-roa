@@ -32,6 +32,10 @@ Parameters:
   LambdaSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
 
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  IsStaging: !Equals [!Ref Environment, staging]
+
 Resources:
 
   TokenRefreshFunction:
@@ -71,6 +75,20 @@ Resources:
       Tags:
         Environment: !Ref Environment
         Component: token-refresh
+        Project: roa
+        HIPAA: "yes"
+
+  TokenRefreshLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/roa-token-refresh-${Environment}
+      RetentionInDays: !If
+        - IsProd
+        - 365
+        - !If
+          - IsStaging
+          - 90
+          - 30
 
   # ── CloudWatch Alarm ───────────────────────────────────────────────────────
 

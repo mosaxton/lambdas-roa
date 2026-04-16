@@ -26,6 +26,10 @@ Parameters:
   LambdaSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
 
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  IsStaging: !Equals [!Ref Environment, staging]
+
 Resources:
 
   PayerHealthCheckFunction:
@@ -63,6 +67,20 @@ Resources:
       Tags:
         Environment: !Ref Environment
         Component: payer-health-check
+        Project: roa
+        HIPAA: "yes"
+
+  PayerHealthCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/roa-payer-health-check-${Environment}
+      RetentionInDays: !If
+        - IsProd
+        - 365
+        - !If
+          - IsStaging
+          - 90
+          - 30
 
   # ── CloudWatch Alarm ───────────────────────────────────────────────────────
 
