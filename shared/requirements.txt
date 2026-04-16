@@ -1,0 +1,7 @@
+# Runtime dependencies bundled into the Lambda Layer.
+# These are installed by SAM during `sam build` into the layer zip.
+# Keep in sync with the top-level requirements.txt.
+boto3
+cryptography
+psycopg2-binary
+requests

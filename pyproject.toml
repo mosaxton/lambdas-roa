@@ -22,6 +22,21 @@ strict = true
 module = ["moto.*", "responses.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["testcontainers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["psycopg2.*"]
+ignore_missing_imports = true
+
+# Test files: relax strict annotation requirements (fixtures and test functions
+# are not annotated by convention; mypy strict still catches logic errors).
+[[tool.mypy.overrides]]
+module = ["shared.tests.*", "functions.*.tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
 [tool.pytest.ini_options]
 testpaths = ["shared/tests", "functions"]
 python_files = "test_*.py"

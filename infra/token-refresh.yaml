@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA Token Refresh — EventBridge-scheduled Lambda that proactively refreshes
+  OAuth access tokens expiring in the next 20 minutes every 15 minutes.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the roa-shared Lambda Layer
+  ExecutionRoleArn:
+    Type: String
+    Description: ARN of the shared Lambda execution IAM role
+  DatabaseUrlSecretName:
+    Type: String
+    Default: roa/database-url
+  EncryptionKeySecretName:
+    Type: String
+    Default: roa/encryption-key
+  BbClientIdSecretName:
+    Type: String
+    Default: roa/bb-client-id
+  BbClientSecretSecretName:
+    Type: String
+    Default: roa/bb-client-secret
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+
+  TokenRefreshFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub roa-token-refresh-${Environment}
+      Description: >
+        Proactively refreshes OAuth tokens expiring within 20 minutes.
+        Runs every 15 minutes; prevents fhir_processor from encountering mid-pull expiry.
+      CodeUri: ../functions/token_refresh/
+      Handler: handler.handler
+      Runtime: python3.12
+      Timeout: 180
+      MemorySize: 256
+      Role: !Ref ExecutionRoleArn
+      Layers:
+        - !Ref SharedLayerArn
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          DATABASE_URL_SECRET_NAME: !Ref DatabaseUrlSecretName
+          ENCRYPTION_KEY_SECRET_NAME: !Ref EncryptionKeySecretName
+          BB_CLIENT_ID_SECRET_NAME: !Ref BbClientIdSecretName
+          BB_CLIENT_SECRET_SECRET_NAME: !Ref BbClientSecretSecretName
+      Events:
+        ScheduledRefresh:
+          Type: Schedule
+          Properties:
+            Name: !Sub roa-token-refresh-schedule-${Environment}
+            Description: Proactively refresh OAuth tokens every 15 minutes
+            Schedule: rate(15 minutes)
+            Enabled: true
+      Tags:
+        Environment: !Ref Environment
+        Component: token-refresh
+
+  # ── CloudWatch Alarm ───────────────────────────────────────────────────────
+
+  TokenRefreshRevokedCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub roa-token-refresh-revoked-count-${Environment}
+      AlarmDescription: >
+        More than 5 revoked refresh tokens detected in one hour.
+        This may indicate a payer-side issue or a security event.
+        Review affected cases and check payer OAuth status.
+      Namespace: ROA/TokenRefresh
+      MetricName: RevokedRefreshToken
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  TokenRefreshFunctionArn:
+    Description: ARN of the Token Refresh Lambda
+    Value: !GetAtt TokenRefreshFunction.Arn
+    Export:
+      Name: !Sub roa-token-refresh-arn-${Environment}

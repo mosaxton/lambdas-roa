@@ -1,1 +1,13 @@
-{}
+{
+  "Environment": "prod",
+  "DatabaseUrlSecretName": "roa/database-url",
+  "EncryptionKeySecretName": "roa/encryption-key",
+  "BbClientIdSecretName": "roa/bb-client-id",
+  "BbClientSecretSecretName": "roa/bb-client-secret",
+  "SlackWebhookSecretName": "roa/slack-webhook-url",
+  "BbBaseUrl": "https://api.bluebutton.cms.gov",
+  "EobQueueName": "eob-processing",
+  "VpcId": "FILL_IN_VPC_ID",
+  "PrivateSubnetIds": "FILL_IN_SUBNET_1,FILL_IN_SUBNET_2",
+  "LambdaSecurityGroupId": "FILL_IN_SECURITY_GROUP_ID"
+}

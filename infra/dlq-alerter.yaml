@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA DLQ Alerter — SQS-triggered Lambda that processes messages from the EOB
+  processing dead letter queue, marks cases ERROR in RDS, and posts Slack alerts.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the roa-shared Lambda Layer
+  ExecutionRoleArn:
+    Type: String
+    Description: ARN of the shared Lambda execution IAM role
+  EobProcessingDlqArn:
+    Type: String
+    Description: ARN of the EOB processing dead letter queue
+  DatabaseUrlSecretName:
+    Type: String
+    Default: roa/database-url
+  SlackWebhookSecretName:
+    Type: String
+    Default: roa/slack-webhook-url
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+
+  DlqAlerterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub roa-dlq-alerter-${Environment}
+      Description: >
+        Consumes messages from the EOB DLQ after 3 failed fhir_processor attempts.
+        Marks the case ERROR in RDS and posts a Slack alert with context.
+      CodeUri: ../functions/dlq_alerter/
+      Handler: handler.handler
+      Runtime: python3.12
+      Timeout: 30
+      MemorySize: 128
+      Role: !Ref ExecutionRoleArn
+      Layers:
+        - !Ref SharedLayerArn
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          DATABASE_URL_SECRET_NAME: !Ref DatabaseUrlSecretName
+          SLACK_WEBHOOK_SECRET_NAME: !Ref SlackWebhookSecretName
+      Events:
+        DlqTrigger:
+          Type: SQS
+          Properties:
+            Queue: !Ref EobProcessingDlqArn
+            BatchSize: 1
+      Tags:
+        Environment: !Ref Environment
+        Component: dlq-alerter
+
+Outputs:
+  DlqAlerterFunctionArn:
+    Description: ARN of the DLQ Alerter Lambda
+    Value: !GetAtt DlqAlerterFunction.Arn
+    Export:
+      Name: !Sub roa-dlq-alerter-arn-${Environment}

@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA Payer Health Check — EventBridge-scheduled Lambda that hits each payer's
+  FHIR /metadata endpoint every 5 minutes and posts Slack alerts after 3 failures.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the roa-shared Lambda Layer
+  ExecutionRoleArn:
+    Type: String
+    Description: ARN of the shared Lambda execution IAM role
+  DatabaseUrlSecretName:
+    Type: String
+    Default: roa/database-url
+  SlackWebhookSecretName:
+    Type: String
+    Default: roa/slack-webhook-url
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+
+  PayerHealthCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub roa-payer-health-check-${Environment}
+      Description: >
+        Checks each payer FHIR /metadata endpoint every 5 minutes.
+        Records response time, increments failure counter, alerts Slack at 3 failures.
+      CodeUri: ../functions/payer_health_check/
+      Handler: handler.handler
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 128
+      Role: !Ref ExecutionRoleArn
+      Layers:
+        - !Ref SharedLayerArn
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          DATABASE_URL_SECRET_NAME: !Ref DatabaseUrlSecretName
+          SLACK_WEBHOOK_SECRET_NAME: !Ref SlackWebhookSecretName
+      Events:
+        ScheduledCheck:
+          Type: Schedule
+          Properties:
+            Name: !Sub roa-payer-health-check-schedule-${Environment}
+            Description: Trigger payer health check every 5 minutes
+            Schedule: rate(5 minutes)
+            Enabled: true
+      Tags:
+        Environment: !Ref Environment
+        Component: payer-health-check
+
+  # ── CloudWatch Alarm ───────────────────────────────────────────────────────
+
+  PayerHealthUnknownSlugAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub roa-payer-health-unknown-slug-${Environment}
+      AlarmDescription: >
+        Payer health check encountered an unknown payer slug.
+        This means payer_registry.py is out of sync with the active payer list.
+      Namespace: ROA/PayerHealthCheck
+      MetricName: UnknownPayerSlug
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  PayerHealthCheckFunctionArn:
+    Description: ARN of the Payer Health Check Lambda
+    Value: !GetAtt PayerHealthCheckFunction.Arn
+    Export:
+      Name: !Sub roa-payer-health-check-arn-${Environment}

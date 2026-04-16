@@ -7,7 +7,9 @@
 black==26.3.1
     # via -r requirements-dev.in
 boto3==1.42.88
-    # via moto
+    # via
+    #   -r requirements-dev.in
+    #   moto
 botocore==1.42.88
     # via
     #   boto3
@@ -27,6 +29,8 @@ click==8.3.2
     #   pip-tools
 cryptography==46.0.7
     # via moto
+docker==7.1.0
+    # via testcontainers
 idna==3.11
     # via requests
 iniconfig==2.3.0
@@ -85,12 +89,15 @@ python-dateutil==2.9.0.post0
     # via
     #   botocore
     #   moto
+python-dotenv==1.2.2
+    # via testcontainers
 pytokens==0.4.1
     # via black
 pyyaml==6.0.3
     # via responses
 requests==2.33.1
     # via
+    #   docker
     #   moto
     #   responses
 responses==0.26.0
@@ -103,19 +110,26 @@ s3transfer==0.16.0
     # via boto3
 six==1.17.0
     # via python-dateutil
+testcontainers[postgres]==4.14.2
+    # via -r requirements-dev.in
 typing-extensions==4.15.0
     # via
     #   mypy
     #   pytest-asyncio
+    #   testcontainers
 urllib3==2.6.3
     # via
     #   botocore
+    #   docker
     #   requests
     #   responses
+    #   testcontainers
 werkzeug==3.1.8
     # via moto
 wheel==0.46.3
     # via pip-tools
+wrapt==2.1.2
+    # via testcontainers
 xmltodict==1.0.4
     # via moto
 

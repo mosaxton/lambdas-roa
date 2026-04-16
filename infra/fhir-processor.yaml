@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA FHIR Processor — SQS-triggered Lambda that pulls EOBs from payer FHIR APIs,
+  parses them, resolves NPIs, and writes normalized data to RDS.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the roa-shared Lambda Layer
+  ExecutionRoleArn:
+    Type: String
+    Description: ARN of the shared Lambda execution IAM role
+  DatabaseUrlSecretName:
+    Type: String
+    Default: roa/database-url
+  EncryptionKeySecretName:
+    Type: String
+    Default: roa/encryption-key
+  BbClientIdSecretName:
+    Type: String
+    Default: roa/bb-client-id
+  BbClientSecretSecretName:
+    Type: String
+    Default: roa/bb-client-secret
+  BbBaseUrl:
+    Type: String
+    Description: CMS Blue Button base URL (sandbox vs prod)
+    Default: https://sandbox.bluebutton.cms.gov
+  NppesApiUrl:
+    Type: String
+    Default: https://npiregistry.cms.hhs.gov/api/
+  NppesCacheTtlHours:
+    Type: Number
+    Default: 168
+  EobQueueName:
+    Type: String
+    Default: eob-processing
+    Description: Base name of the EOB SQS queue (appended with -{Environment})
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+
+  # ── Dead Letter Queue ──────────────────────────────────────────────────────
+
+  EobProcessingDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${EobQueueName}-dlq-${Environment}
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: fhir-processor
+
+  # ── Main Processing Queue ──────────────────────────────────────────────────
+
+  EobProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${EobQueueName}-${Environment}
+      # Visibility timeout must exceed Lambda timeout (300s) with buffer
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 86400  # 1 day (Lambda retries 3× then DLQ)
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EobProcessingDlq.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: fhir-processor
+
+  # ── Lambda Function ────────────────────────────────────────────────────────
+
+  FhirProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub roa-fhir-processor-${Environment}
+      Description: Processes EOBs from payer FHIR APIs and writes to RDS
+      CodeUri: ../functions/fhir_processor/
+      Handler: handler.handler
+      Runtime: python3.12
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 3
+      Role: !Ref ExecutionRoleArn
+      Layers:
+        - !Ref SharedLayerArn
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          DATABASE_URL_SECRET_NAME: !Ref DatabaseUrlSecretName
+          ENCRYPTION_KEY_SECRET_NAME: !Ref EncryptionKeySecretName
+          BB_CLIENT_ID_SECRET_NAME: !Ref BbClientIdSecretName
+          BB_CLIENT_SECRET_SECRET_NAME: !Ref BbClientSecretSecretName
+          BB_BASE_URL: !Ref BbBaseUrl
+          NPPES_API_URL: !Ref NppesApiUrl
+          NPPES_CACHE_TTL_HOURS: !Ref NppesCacheTtlHours
+          EOB_DLQ_URL: !Ref EobProcessingDlq
+      Events:
+        SqsTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EobProcessingQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+      Tracing: Active
+      Tags:
+        Environment: !Ref Environment
+        Component: fhir-processor
+
+  # ── CloudWatch Alarms ──────────────────────────────────────────────────────
+
+  FhirProcessorErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub roa-fhir-processor-error-rate-${Environment}
+      AlarmDescription: >
+        FHIR Processor error rate exceeded 10% of invocations over 5 minutes.
+        Check Lambda logs for EOB processing failures.
+      Metrics:
+        - Id: errors
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Errors
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref FhirProcessorFunction
+            Period: 300
+            Stat: Sum
+        - Id: invocations
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Invocations
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref FhirProcessorFunction
+            Period: 300
+            Stat: Sum
+        - Id: error_rate
+          ReturnData: true
+          Expression: "IF(invocations > 0, errors / invocations, 0)"
+          Label: ErrorRate
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0.1
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+
+  FhirProcessorDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub roa-fhir-processor-duration-p99-${Environment}
+      AlarmDescription: >
+        FHIR Processor p99 duration exceeded 240s (approaching 300s timeout).
+        Cases with large EOB histories may be at risk of timeout.
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FhirProcessorFunction
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 240000  # milliseconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  DlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub roa-eob-dlq-depth-${Environment}
+      AlarmDescription: >
+        Messages found in the EOB processing DLQ.
+        At least one case failed FHIR processing after 3 retries.
+        Check roa-dlq-alerter logs and the case status in RDS.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt EobProcessingDlq.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  EobProcessingQueueUrl:
+    Description: URL of the EOB processing SQS queue (written to Parameter Store by root template)
+    Value: !Ref EobProcessingQueue
+    Export:
+      Name: !Sub roa-eob-queue-url-${Environment}
+
+  EobProcessingQueueArn:
+    Description: ARN of the EOB processing SQS queue
+    Value: !GetAtt EobProcessingQueue.Arn
+    Export:
+      Name: !Sub roa-eob-queue-arn-${Environment}
+
+  EobProcessingDlqUrl:
+    Description: URL of the DLQ
+    Value: !Ref EobProcessingDlq
+    Export:
+      Name: !Sub roa-eob-dlq-url-${Environment}
+
+  EobProcessingDlqArn:
+    Description: ARN of the DLQ (used by DlqAlerter trigger and IAM policy)
+    Value: !GetAtt EobProcessingDlq.Arn
+    Export:
+      Name: !Sub roa-eob-dlq-arn-${Environment}
+
+  FhirProcessorFunctionArn:
+    Description: ARN of the FHIR Processor Lambda
+    Value: !GetAtt FhirProcessorFunction.Arn
+    Export:
+      Name: !Sub roa-fhir-processor-arn-${Environment}

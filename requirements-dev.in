@@ -6,3 +6,5 @@ black
 mypy
 moto
 responses
+boto3
+testcontainers[postgres]

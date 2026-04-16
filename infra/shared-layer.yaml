@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA Lambda Layer — shared utilities (encryption, db, secrets, logging, payer registry).
+  Deployed once; referenced by all function stacks via the exported ARN.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+Resources:
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub roa-shared-${Environment}
+      Description: !Sub >
+        Shared utilities for all ROA Lambdas (${Environment}).
+        Encryption, DB helpers, Secrets Manager loader, structured logging, payer registry.
+      ContentUri: ../shared/
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.12
+
+Outputs:
+  SharedLayerArn:
+    Description: ARN of the shared Lambda Layer (pass to function stacks)
+    Value: !Ref SharedLayer
+    Export:
+      Name: !Sub roa-shared-layer-arn-${Environment}

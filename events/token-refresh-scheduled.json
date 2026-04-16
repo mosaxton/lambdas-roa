@@ -1,0 +1,13 @@
+{
+  "version": "0",
+  "id": "7bf73129-1428-4cd3-a780-95db273d1602",
+  "detail-type": "Scheduled Event",
+  "source": "aws.events",
+  "account": "123456789012",
+  "time": "2026-01-01T00:00:00Z",
+  "region": "us-east-1",
+  "resources": [
+    "arn:aws:events:us-east-1:123456789012:rule/roa-token-refresh-schedule-dev"
+  ],
+  "detail": {}
+}

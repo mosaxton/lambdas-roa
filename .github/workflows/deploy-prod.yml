@@ -1,0 +1,94 @@
+name: deploy-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for production deploy (required for audit trail)"
+        required: true
+        type: string
+      confirmed:
+        description: "Type DEPLOY to confirm production deployment"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  validate-confirmation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deployment confirmation
+        run: |
+          if [[ "${{ github.event.inputs.confirmed }}" != "DEPLOY" ]]; then
+            echo "ERROR: You must type DEPLOY in the 'confirmed' field to deploy to prod." >&2
+            exit 1
+          fi
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: [validate-confirmation, test]
+    runs-on: ubuntu-latest
+    environment: production  # requires CODEOWNERS reviewer approval in repo settings
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN_PROD }}
+          aws-region: us-east-1
+
+      - name: Install AWS SAM CLI
+        run: pip install aws-sam-cli
+
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip pip-tools
+          pip-sync requirements.txt requirements-dev.txt
+
+      - name: SAM build
+        run: sam build --config-env prod --cached --parallel
+
+      - name: SAM deploy (prod)
+        run: sam deploy --config-env prod
+
+      - name: Record deployed Lambda versions (for rollback reference)
+        run: |
+          echo "==> Deployed Lambda versions (prod):"
+          aws lambda list-functions \
+            --query 'Functions[?starts_with(FunctionName, `roa-`) && ends_with(FunctionName, `-prod`)].{Name:FunctionName,Version:Version}' \
+            --output table
+
+      - name: Smoke test
+        run: |
+          chmod +x scripts/smoke-test.sh
+          ./scripts/smoke-test.sh prod
+
+      - name: Post-deploy summary
+        run: |
+          echo "### Production Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason:** ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Rollback command:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "aws lambda update-alias --function-name roa-fhir-processor-prod --name live --function-version <previous-version>" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

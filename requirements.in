@@ -1,2 +1,3 @@
 # Runtime deps
 cryptography
+psycopg2-binary

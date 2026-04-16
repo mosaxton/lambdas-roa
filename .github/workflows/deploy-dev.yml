@@ -1,0 +1,69 @@
+name: deploy-dev
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false  # don't cancel in-flight deploys — let them finish
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # for OIDC auth to AWS
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN_DEV }}
+          aws-region: us-east-1
+
+      - name: Install AWS SAM CLI
+        run: pip install aws-sam-cli
+
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip pip-tools
+          pip-sync requirements.txt requirements-dev.txt
+
+      - name: SAM build
+        run: sam build --config-env dev --cached --parallel
+
+      - name: SAM deploy (dev)
+        run: sam deploy --config-env dev --no-confirm-changeset
+
+      - name: Output deployed Lambda versions
+        run: |
+          echo "### Dev Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Lambda versions:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          aws lambda list-functions \
+            --query 'Functions[?starts_with(FunctionName, `roa-`) && ends_with(FunctionName, `-dev`)].{Name:FunctionName,Version:Version}' \
+            --output table | tee -a $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Smoke test
+        run: |
+          chmod +x scripts/smoke-test.sh
+          ./scripts/smoke-test.sh dev

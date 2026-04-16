@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA Lambdas — root SAM template. Deploys the shared layer, IAM role, and all
+  Lambda function stacks (fhir_processor, payer_health_check, token_refresh,
+  dlq_alerter, cold_storage_mover). Use samconfig.toml for per-environment params.
+
+# ── Parameters ───────────────────────────────────────────────────────────────
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+  DatabaseUrlSecretName:
+    Type: String
+    Default: roa/database-url
+    Description: Secrets Manager secret name holding the Postgres URL
+
+  EncryptionKeySecretName:
+    Type: String
+    Default: roa/encryption-key
+    Description: Secrets Manager secret name holding the 32-byte hex AES key
+
+  BbClientIdSecretName:
+    Type: String
+    Default: roa/bb-client-id
+
+  BbClientSecretSecretName:
+    Type: String
+    Default: roa/bb-client-secret
+
+  SlackWebhookSecretName:
+    Type: String
+    Default: roa/slack-webhook-url
+
+  BbBaseUrl:
+    Type: String
+    Description: CMS Blue Button base URL
+    Default: https://sandbox.bluebutton.cms.gov
+
+  EobQueueName:
+    Type: String
+    Default: eob-processing
+    Description: Base name of the EOB SQS queue (appended with -{Environment})
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that has access to RDS (passed through to parameter files; not used by Lambda VpcConfig directly)
+
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Two private subnets for Lambda VPC placement (must have NAT for outbound)
+
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowing Lambda → RDS on port 5432
+
+# ── Globals ──────────────────────────────────────────────────────────────────
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+
+# ── Resources ────────────────────────────────────────────────────────────────
+
+Resources:
+
+  # ── Shared Lambda Layer ────────────────────────────────────────────────────
+
+  SharedLayerStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./shared-layer.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  # ── IAM Execution Role (shared by all Lambdas) ────────────────────────────
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub roa-lambda-execution-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: roa-lambda-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Secrets Manager — read all roa/* secrets
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:roa/*
+              # SQS — receive + delete from EOB queue and DLQ
+              # Pattern ARN avoids circular dependency: LambdaExecutionRole is passed
+              # to FhirProcessorStack, so it cannot also reference FhirProcessorStack outputs.
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${EobQueueName}-${Environment}
+                  - !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${EobQueueName}-dlq-${Environment}
+              # CloudWatch Logs — full access to roa-* log groups
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/roa-*:*
+              # Parameter Store — write queue URL for Next.js app to read
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/roa/${Environment}/*
+
+  # ── FHIR Processor (SQS + DLQ + Lambda + CW Alarms) ──────────────────────
+
+  FhirProcessorStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./fhir-processor.yaml
+      Parameters:
+        Environment: !Ref Environment
+        SharedLayerArn: !GetAtt SharedLayerStack.Outputs.SharedLayerArn
+        ExecutionRoleArn: !GetAtt LambdaExecutionRole.Arn
+        DatabaseUrlSecretName: !Ref DatabaseUrlSecretName
+        EncryptionKeySecretName: !Ref EncryptionKeySecretName
+        BbClientIdSecretName: !Ref BbClientIdSecretName
+        BbClientSecretSecretName: !Ref BbClientSecretSecretName
+        BbBaseUrl: !Ref BbBaseUrl
+        EobQueueName: !Ref EobQueueName
+        PrivateSubnetIds: !Join [",", !Ref PrivateSubnetIds]
+        LambdaSecurityGroupId: !Ref LambdaSecurityGroupId
+
+  # ── Payer Health Check (EventBridge cron + Lambda) ────────────────────────
+
+  PayerHealthCheckStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./payer-health-check.yaml
+      Parameters:
+        Environment: !Ref Environment
+        SharedLayerArn: !GetAtt SharedLayerStack.Outputs.SharedLayerArn
+        ExecutionRoleArn: !GetAtt LambdaExecutionRole.Arn
+        DatabaseUrlSecretName: !Ref DatabaseUrlSecretName
+        SlackWebhookSecretName: !Ref SlackWebhookSecretName
+        PrivateSubnetIds: !Join [",", !Ref PrivateSubnetIds]
+        LambdaSecurityGroupId: !Ref LambdaSecurityGroupId
+
+  # ── Token Refresh (EventBridge cron + Lambda) ─────────────────────────────
+
+  TokenRefreshStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./token-refresh.yaml
+      Parameters:
+        Environment: !Ref Environment
+        SharedLayerArn: !GetAtt SharedLayerStack.Outputs.SharedLayerArn
+        ExecutionRoleArn: !GetAtt LambdaExecutionRole.Arn
+        DatabaseUrlSecretName: !Ref DatabaseUrlSecretName
+        EncryptionKeySecretName: !Ref EncryptionKeySecretName
+        BbClientIdSecretName: !Ref BbClientIdSecretName
+        BbClientSecretSecretName: !Ref BbClientSecretSecretName
+        PrivateSubnetIds: !Join [",", !Ref PrivateSubnetIds]
+        LambdaSecurityGroupId: !Ref LambdaSecurityGroupId
+
+  # ── DLQ Alerter (SQS DLQ trigger + Lambda) ───────────────────────────────
+
+  DlqAlerterStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./dlq-alerter.yaml
+      Parameters:
+        Environment: !Ref Environment
+        SharedLayerArn: !GetAtt SharedLayerStack.Outputs.SharedLayerArn
+        ExecutionRoleArn: !GetAtt LambdaExecutionRole.Arn
+        EobProcessingDlqArn: !GetAtt FhirProcessorStack.Outputs.EobProcessingDlqArn
+        DatabaseUrlSecretName: !Ref DatabaseUrlSecretName
+        SlackWebhookSecretName: !Ref SlackWebhookSecretName
+        PrivateSubnetIds: !Join [",", !Ref PrivateSubnetIds]
+        LambdaSecurityGroupId: !Ref LambdaSecurityGroupId
+
+  # ── Cold Storage Mover (Phase 2 — disabled EventBridge) ──────────────────
+
+  ColdStorageMoverStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./cold-storage-mover.yaml
+      Parameters:
+        Environment: !Ref Environment
+        SharedLayerArn: !GetAtt SharedLayerStack.Outputs.SharedLayerArn
+        ExecutionRoleArn: !GetAtt LambdaExecutionRole.Arn
+        DatabaseUrlSecretName: !Ref DatabaseUrlSecretName
+        PrivateSubnetIds: !Join [",", !Ref PrivateSubnetIds]
+        LambdaSecurityGroupId: !Ref LambdaSecurityGroupId
+
+  # ── Parameter Store — queue URL for the Next.js app ───────────────────────
+  # The Next.js Amplify app reads this at startup instead of using a hardcoded
+  # env var, so it survives stack recreations without an Amplify redeploy.
+
+  EobQueueUrlParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /roa/${Environment}/sqs/eob-processing-queue-url
+      Type: String
+      Value: !GetAtt FhirProcessorStack.Outputs.EobProcessingQueueUrl
+      Description: URL of the EOB processing SQS queue (read by Next.js Amplify app)
+      Tags:
+        Environment: !Ref Environment
+
+# ── Outputs ──────────────────────────────────────────────────────────────────
+
+Outputs:
+  SharedLayerArn:
+    Description: Shared Lambda Layer ARN
+    Value: !GetAtt SharedLayerStack.Outputs.SharedLayerArn
+
+  EobProcessingQueueUrl:
+    Description: URL of the EOB processing SQS queue
+    Value: !GetAtt FhirProcessorStack.Outputs.EobProcessingQueueUrl
+
+  EobProcessingQueueArn:
+    Description: ARN of the EOB processing SQS queue
+    Value: !GetAtt FhirProcessorStack.Outputs.EobProcessingQueueArn
+
+  EobProcessingDlqUrl:
+    Description: URL of the EOB processing DLQ
+    Value: !GetAtt FhirProcessorStack.Outputs.EobProcessingDlqUrl
+
+  ParameterStorePath:
+    Description: Parameter Store path where queue URL is stored (for Next.js app)
+    Value: !Sub /roa/${Environment}/sqs/eob-processing-queue-url

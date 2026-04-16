@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ROA Cold Storage Mover — Phase 2, NOT in MVP.
+  Daily Lambda that moves raw EOB data for completed cases (>12 months old)
+  from RDS to S3 with KMS encryption and a Glacier Instant Retrieval lifecycle policy.
+  Schedule is DISABLED until we have 12-month-old cases.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the roa-shared Lambda Layer
+  ExecutionRoleArn:
+    Type: String
+    Description: ARN of the shared Lambda execution IAM role
+  DatabaseUrlSecretName:
+    Type: String
+    Default: roa/database-url
+  EobArchiveBucketName:
+    Type: String
+    Description: S3 bucket for archived EOB data (created separately)
+    Default: roa-eob-archive
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+
+  # Phase 2: schedule is disabled until we have 12-month-old completed cases.
+  ColdStorageMoverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub roa-cold-storage-mover-${Environment}
+      Description: >
+        [Phase 2 — NOT active in MVP]
+        Moves raw EOB JSON from RDS to S3 for cases completed >12 months ago.
+        Trigger is disabled; enable by setting Enabled: true below.
+      CodeUri: ../functions/cold_storage_mover/
+      Handler: handler.handler
+      Runtime: python3.12
+      Timeout: 900  # 15 min — moves many rows in a daily batch
+      MemorySize: 256
+      Role: !Ref ExecutionRoleArn
+      Layers:
+        - !Ref SharedLayerArn
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          DATABASE_URL_SECRET_NAME: !Ref DatabaseUrlSecretName
+          EOB_ARCHIVE_BUCKET: !Ref EobArchiveBucketName
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Name: !Sub roa-cold-storage-mover-schedule-${Environment}
+            Description: "[Phase 2] Move cold EOB data to S3 daily at 03:00 UTC"
+            Schedule: "cron(0 3 * * ? *)"
+            Enabled: false  # Phase 2 — enable when ready
+      Tags:
+        Environment: !Ref Environment
+        Component: cold-storage-mover
+        Phase: "2"
+
+Outputs:
+  ColdStorageMoverFunctionArn:
+    Description: ARN of the Cold Storage Mover Lambda (Phase 2, disabled)
+    Value: !GetAtt ColdStorageMoverFunction.Arn
+    Export:
+      Name: !Sub roa-cold-storage-mover-arn-${Environment}
