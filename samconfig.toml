@@ -3,7 +3,7 @@ version = 0.1
 # ── Default (used when --config-env is not specified) ────────────────────────
 [default.global.parameters]
 stack_name = "roa-lambdas-dev"
-s3_bucket = "FILL_IN_SAM_ARTIFACT_BUCKET"
+s3_bucket = "roa-sam-artifacts-prod"
 s3_prefix = "roa-lambdas"
 region = "us-east-1"
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
@@ -16,14 +16,21 @@ cached = true
 parallel = true
 
 # ── dev ──────────────────────────────────────────────────────────────────────
+# Uses Blue Button SANDBOX. confirm_changeset = false for faster iteration.
+# Same VPC/subnets/SG as prod (single infrastructure at this stage).
 [dev.global.parameters]
 stack_name = "roa-lambdas-dev"
-s3_bucket = "FILL_IN_SAM_ARTIFACT_BUCKET_DEV"
+s3_bucket = "roa-sam-artifacts-prod"
 s3_prefix = "roa-lambdas/dev"
 region = "us-east-1"
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
 confirm_changeset = false
 template_file = "infra/template.yaml"
+
+[dev.build.parameters]
+use_container = false
+cached = true
+parallel = true
 
 [dev.deploy.parameters]
 parameter_overrides = [
@@ -35,45 +42,28 @@ parameter_overrides = [
   "SlackWebhookSecretName=roa/slack-webhook-url",
   "BbBaseUrl=https://sandbox.bluebutton.cms.gov",
   "EobQueueName=eob-processing",
-  "VpcId=FILL_IN_VPC_ID_DEV",
-  "PrivateSubnetIds=FILL_IN_SUBNET_1_DEV,FILL_IN_SUBNET_2_DEV",
-  "LambdaSecurityGroupId=FILL_IN_SG_ID_DEV",
-]
-
-# ── staging ──────────────────────────────────────────────────────────────────
-[staging.global.parameters]
-stack_name = "roa-lambdas-staging"
-s3_bucket = "FILL_IN_SAM_ARTIFACT_BUCKET_STAGING"
-s3_prefix = "roa-lambdas/staging"
-region = "us-east-1"
-capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
-confirm_changeset = true
-template_file = "infra/template.yaml"
-
-[staging.deploy.parameters]
-parameter_overrides = [
-  "Environment=staging",
-  "DatabaseUrlSecretName=roa/database-url",
-  "EncryptionKeySecretName=roa/encryption-key",
-  "BbClientIdSecretName=roa/bb-client-id",
-  "BbClientSecretSecretName=roa/bb-client-secret",
-  "SlackWebhookSecretName=roa/slack-webhook-url",
-  "BbBaseUrl=https://sandbox.bluebutton.cms.gov",
-  "EobQueueName=eob-processing",
-  "VpcId=FILL_IN_VPC_ID_STAGING",
-  "PrivateSubnetIds=FILL_IN_SUBNET_1_STAGING,FILL_IN_SUBNET_2_STAGING",
-  "LambdaSecurityGroupId=FILL_IN_SG_ID_STAGING",
+  "VpcId=vpc-093e04134bcd821d6",
+  "PrivateSubnetIds=subnet-04bce2c821af36128,subnet-05ddd546e1b145e62",
+  "LambdaSecurityGroupId=sg-0cc4844bc547781d2",
 ]
 
 # ── prod ─────────────────────────────────────────────────────────────────────
+# Uses Blue Button PRODUCTION. confirm_changeset = true (review before deploy).
+# Same infrastructure as dev for now. When you need isolation, create a
+# separate VPC/subnets/SG set and update the IDs below.
 [prod.global.parameters]
 stack_name = "roa-lambdas-prod"
-s3_bucket = "FILL_IN_SAM_ARTIFACT_BUCKET_PROD"
+s3_bucket = "roa-sam-artifacts-prod"
 s3_prefix = "roa-lambdas/prod"
 region = "us-east-1"
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
 confirm_changeset = true
 template_file = "infra/template.yaml"
+
+[prod.build.parameters]
+use_container = false
+cached = true
+parallel = true
 
 [prod.deploy.parameters]
 parameter_overrides = [
@@ -85,7 +75,7 @@ parameter_overrides = [
   "SlackWebhookSecretName=roa/slack-webhook-url",
   "BbBaseUrl=https://api.bluebutton.cms.gov",
   "EobQueueName=eob-processing",
-  "VpcId=FILL_IN_VPC_ID_PROD",
-  "PrivateSubnetIds=FILL_IN_SUBNET_1_PROD,FILL_IN_SUBNET_2_PROD",
-  "LambdaSecurityGroupId=FILL_IN_SG_ID_PROD",
+  "VpcId=vpc-093e04134bcd821d6",
+  "PrivateSubnetIds=subnet-04bce2c821af36128,subnet-05ddd546e1b145e62",
+  "LambdaSecurityGroupId=sg-0cc4844bc547781d2",
 ]

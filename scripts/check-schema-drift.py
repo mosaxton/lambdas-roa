@@ -137,8 +137,9 @@ def check_payer_registry_drift() -> list[str]:
     if ts_urls and py_urls:
         if ts_urls_in_py:
             errors.append(
-                f"FHIR base URL(s) in TS registry but missing from Python: {sorted(ts_urls_in_py)}\n"
-                f"  → Update shared/payer_registry.py base URLs"
+                "FHIR base URL(s) in TS registry but missing from Python: "
+                f"{sorted(ts_urls_in_py)}\n"
+                "  → Update shared/payer_registry.py base URLs"
             )
         if py_urls_not_in_ts:
             errors.append(
@@ -247,7 +248,7 @@ def main() -> int:
         print(f"==> Checking column references in {db_py_path}...")
         errors.extend(check_python_column_refs(db_py_text))
     else:
-        print(f"    shared/db.py not found — skipping Python column reference check")
+        print("    shared/db.py not found — skipping Python column reference check")
 
     # 5. Check payer registry sync
     print("==> Checking payer registry sync (TS ↔ Python)...")

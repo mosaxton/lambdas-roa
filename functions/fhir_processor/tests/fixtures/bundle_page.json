@@ -1,0 +1,83 @@
+{
+  "resourceType": "Bundle",
+  "id": "eob-bundle-page1",
+  "type": "searchset",
+  "total": 2,
+  "link": [
+    {
+      "relation": "self",
+      "url": "https://sandbox.bluebutton.cms.gov/v2/fhir/ExplanationOfBenefit?patient=Patient%2F-20140000010000&_count=2"
+    },
+    {
+      "relation": "next",
+      "url": "https://sandbox.bluebutton.cms.gov/v2/fhir/ExplanationOfBenefit?patient=Patient%2F-20140000010000&_count=2&startIndex=2"
+    }
+  ],
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "ExplanationOfBenefit",
+        "id": "bundle-carrier-eob-001",
+        "type": {
+          "coding": [
+            {
+              "system": "https://bluebutton.cms.gov/resources/codesystem/eob-type",
+              "code": "CARRIER"
+            }
+          ]
+        },
+        "careTeam": [
+          {
+            "sequence": 1,
+            "provider": {
+              "identifier": {
+                "system": "http://hl7.org/fhir/sid/us-npi",
+                "value": "1111111111"
+              }
+            },
+            "role": {
+              "coding": [
+                {
+                  "system": "http://hl7.org/fhir/us/carin-bb/CodeSystem/C4BBClaimCareTeamRole",
+                  "code": "performing"
+                }
+              ]
+            }
+          }
+        ],
+        "diagnosis": [],
+        "item": [
+          {
+            "sequence": 1,
+            "servicedDate": "2024-04-01",
+            "productOrService": {
+              "coding": [
+                {
+                  "system": "https://bluebutton.cms.gov/resources/codesystem/hcpcs",
+                  "code": "99214"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "ExplanationOfBenefit",
+        "id": "bundle-carrier-eob-002",
+        "type": {
+          "coding": [
+            {
+              "system": "https://bluebutton.cms.gov/resources/codesystem/eob-type",
+              "code": "CARRIER"
+            }
+          ]
+        },
+        "careTeam": [],
+        "diagnosis": [],
+        "item": []
+      }
+    }
+  ]
+}

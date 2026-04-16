@@ -1,0 +1,46 @@
+{
+  "resourceType": "ExplanationOfBenefit",
+  "id": "pde-eob-001",
+  "type": {
+    "coding": [
+      {
+        "system": "https://bluebutton.cms.gov/resources/codesystem/eob-type",
+        "code": "PDE"
+      }
+    ]
+  },
+  "careTeam": [
+    {
+      "sequence": 1,
+      "provider": {
+        "identifier": {
+          "system": "http://hl7.org/fhir/sid/us-npi",
+          "value": "1122334455"
+        }
+      },
+      "role": {
+        "coding": [
+          {
+            "system": "http://hl7.org/fhir/us/carin-bb/CodeSystem/C4BBClaimCareTeamRole",
+            "code": "prescribing"
+          }
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "sequence": 1,
+      "servicedDate": "2024-02-10",
+      "productOrService": {
+        "coding": [
+          {
+            "system": "http://hl7.org/fhir/sid/ndc",
+            "code": "00069420030",
+            "display": "LISINOPRIL 10MG TABLET"
+          }
+        ]
+      }
+    }
+  ]
+}

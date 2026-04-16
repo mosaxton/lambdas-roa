@@ -23,6 +23,19 @@ module = ["moto.*", "responses.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["requests", "requests.*"]
+ignore_missing_imports = true
+
+# Direct module imports used by Lambda handler (Lambda adds fhir_processor dir to sys.path)
+[[tool.mypy.overrides]]
+module = ["eob_parser", "fhir_client", "nppes_resolver", "handler"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["testcontainers.*"]
 ignore_missing_imports = true
 
@@ -33,9 +46,10 @@ ignore_missing_imports = true
 # Test files: relax strict annotation requirements (fixtures and test functions
 # are not annotated by convention; mypy strict still catches logic errors).
 [[tool.mypy.overrides]]
-module = ["shared.tests.*", "functions.*.tests.*"]
+module = ["shared.tests.*", "functions.*.tests.*", "fhir_processor.tests.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["shared/tests", "functions"]
